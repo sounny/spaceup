@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Heads Up – French & English</title>
+  <title>Space Up – French & English</title>
   <style>
     /*
      * Simple styles for the game.  The layout uses flexbox to center
@@ -46,6 +46,10 @@
     #start-button:hover {
       background-color: #45a049;
     }
+    #start-button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
     #game {
       display: none;
       flex-direction: column;
@@ -84,15 +88,72 @@
     .hidden {
       display: none;
     }
+    #orientation-warning {
+      position: fixed;
+      top: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: rgba(255, 69, 58, 0.95);
+      color: white;
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      max-width: 90vw;
+      z-index: 1000;
+    }
+    #desktop-message {
+      position: fixed;
+      bottom: 1rem;
+      right: 1rem;
+      background-color: rgba(255, 255, 255, 0.95);
+      border-radius: 8px;
+      padding: 1rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      max-width: 260px;
+      text-align: center;
+      z-index: 900;
+    }
+    #desktop-message img {
+      margin-top: 0.5rem;
+      width: 160px;
+      height: 160px;
+    }
+    #countdown-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: rgba(0, 0, 0, 0.75);
+      color: white;
+      font-size: 4rem;
+      font-weight: bold;
+      z-index: 1100;
+    }
   </style>
 </head>
 <body>
   <!-- Start screen shown before the game begins -->
   <div id="start-screen">
-    <h1>Heads Up</h1>
+    <h1>Space Up</h1>
     <p>This small game shows an image and its name in French and English.  Hold the phone to your forehead.  When you guess correctly, tilt the device down.  To pass, tilt up.  Try to get as many correct as you can!</p>
     <button id="start-button">Start Game</button>
   </div>
+
+  <div id="orientation-warning" class="hidden">
+    Please rotate your device to landscape mode to play Space Up.
+  </div>
+
+  <div id="desktop-message" class="hidden">
+    <p>For the best experience, play Space Up on your phone.</p>
+    <p>Scan this QR code to open the game on your device:</p>
+    <img id="qr-code" alt="QR code linking to Space Up" />
+  </div>
+
+  <div id="countdown-overlay" class="hidden"></div>
 
   <!-- Game container shown during play -->
   <div id="game">
@@ -212,9 +273,16 @@
     const cardImage = document.getElementById('card-image');
     const cardText = document.getElementById('card-text');
     const scoreboard = document.getElementById('scoreboard');
+    const orientationWarning = document.getElementById('orientation-warning');
+    const countdownOverlay = document.getElementById('countdown-overlay');
+    const desktopMessage = document.getElementById('desktop-message');
+    const qrCode = document.getElementById('qr-code');
+    const startButton = document.getElementById('start-button');
+
+    const isMobile = /android|iphone|ipad|ipod|windows phone/i.test(navigator.userAgent);
 
     // Load stored high score from localStorage if available
-    const storedHigh = localStorage.getItem('headsUpHighScore');
+    const storedHigh = localStorage.getItem('spaceUpHighScore') || localStorage.getItem('headsUpHighScore');
     if (storedHigh) {
       highScore = parseInt(storedHigh, 10);
     }
@@ -222,6 +290,29 @@
     // Update scoreboard display
     function updateScoreboard() {
       scoreboard.textContent = `Score : ${score} | High score : ${highScore}`;
+    }
+
+    function checkOrientation() {
+      if (!isMobile) {
+        orientationWarning.classList.add('hidden');
+        return;
+      }
+      const isLandscape = window.matchMedia('(orientation: landscape)').matches || window.innerWidth > window.innerHeight;
+      if (isLandscape) {
+        orientationWarning.classList.add('hidden');
+      } else {
+        orientationWarning.classList.remove('hidden');
+      }
+    }
+
+    function updateDesktopMessage() {
+      if (isMobile) {
+        desktopMessage.classList.add('hidden');
+        return;
+      }
+      desktopMessage.classList.remove('hidden');
+      const url = window.location.href;
+      qrCode.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
     }
 
     const DOWN_TILT_THRESHOLD = 55;
@@ -278,7 +369,7 @@
         // Update high score if needed
         if (score > highScore) {
           highScore = score;
-          localStorage.setItem('headsUpHighScore', String(highScore));
+          localStorage.setItem('spaceUpHighScore', String(highScore));
         }
         // Display final score
         cardText.textContent = `Finished! Vous avez ${score} bonne(s) réponse(s).`;
@@ -316,6 +407,29 @@
       gameContainer.style.display = 'flex';
       ensureAudioContext();
       showNextCard();
+    }
+
+    function runCountdown() {
+      if (playing) return;
+      let count = 3;
+      countdownOverlay.textContent = count;
+      countdownOverlay.classList.remove('hidden');
+      startButton.disabled = true;
+      const countdownInterval = setInterval(() => {
+        count -= 1;
+        if (count > 0) {
+          countdownOverlay.textContent = count;
+          return;
+        }
+        clearInterval(countdownInterval);
+        countdownOverlay.textContent = 'Go!';
+        setTimeout(() => {
+          countdownOverlay.classList.add('hidden');
+          countdownOverlay.textContent = '';
+          startButton.disabled = false;
+          startGame();
+        }, 500);
+      }, 1000);
     }
 
     // Handle device orientation: detect up/down tilts
@@ -363,12 +477,17 @@
     window.addEventListener('deviceorientation', handleOrientation);
 
     // Start button event
-    document.getElementById('start-button').addEventListener('click', () => {
-      startGame();
+    startButton.addEventListener('click', () => {
+      runCountdown();
     });
 
     // Update scoreboard initially
     updateScoreboard();
+    checkOrientation();
+    updateDesktopMessage();
+
+    window.addEventListener('resize', checkOrientation);
+    window.addEventListener('orientationchange', checkOrientation);
   </script>
 </body>
 </html>
