@@ -31,7 +31,7 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      max-width: 300px;
+      max-width: 320px;
     }
     #start-button {
       padding: 0.75rem 1rem;
@@ -49,6 +49,26 @@
     #start-button:disabled {
       opacity: 0.7;
       cursor: not-allowed;
+    }
+    #mobile-note {
+      margin-top: 1.25rem;
+      padding: 1rem;
+      background-color: #ffffff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      max-width: 280px;
+    }
+    #mobile-note p {
+      margin: 0;
+      font-size: 0.9rem;
+      color: #555;
+    }
+    #mobile-note img {
+      display: block;
+      margin: 0.75rem auto 0;
+      width: 160px;
+      height: 160px;
     }
     #game {
       display: none;
@@ -101,23 +121,6 @@
       max-width: 90vw;
       z-index: 1000;
     }
-    #desktop-message {
-      position: fixed;
-      bottom: 1rem;
-      right: 1rem;
-      background-color: rgba(255, 255, 255, 0.95);
-      border-radius: 8px;
-      padding: 1rem;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      max-width: 260px;
-      text-align: center;
-      z-index: 900;
-    }
-    #desktop-message img {
-      margin-top: 0.5rem;
-      width: 160px;
-      height: 160px;
-    }
     #countdown-overlay {
       position: fixed;
       top: 0;
@@ -141,16 +144,14 @@
     <h1>Space Up</h1>
     <p>This small game shows an image and its name in French and English.  Hold the phone to your forehead.  When you guess correctly, tilt the device down.  To pass, tilt up.  Try to get as many correct as you can!</p>
     <button id="start-button">Start Game</button>
+    <div id="mobile-note">
+      <p>Best experienced on a phone. Scan the QR code to open Space Up on your device.</p>
+      <img id="qr-code" alt="QR code linking to Space Up" />
+    </div>
   </div>
 
   <div id="orientation-warning" class="hidden">
     Please rotate your device to landscape mode to play Space Up.
-  </div>
-
-  <div id="desktop-message" class="hidden">
-    <p>For the best experience, play Space Up on your phone.</p>
-    <p>Scan this QR code to open the game on your device:</p>
-    <img id="qr-code" alt="QR code linking to Space Up" />
   </div>
 
   <div id="countdown-overlay" class="hidden"></div>
@@ -275,11 +276,8 @@
     const scoreboard = document.getElementById('scoreboard');
     const orientationWarning = document.getElementById('orientation-warning');
     const countdownOverlay = document.getElementById('countdown-overlay');
-    const desktopMessage = document.getElementById('desktop-message');
     const qrCode = document.getElementById('qr-code');
     const startButton = document.getElementById('start-button');
-
-    const isMobile = /android|iphone|ipad|ipod|windows phone/i.test(navigator.userAgent);
 
     // Load stored high score from localStorage if available
     const storedHigh = localStorage.getItem('spaceUpHighScore') || localStorage.getItem('headsUpHighScore');
@@ -293,7 +291,8 @@
     }
 
     function checkOrientation() {
-      if (!isMobile) {
+      const prefersTouch = window.matchMedia('(pointer: coarse)').matches;
+      if (!prefersTouch) {
         orientationWarning.classList.add('hidden');
         return;
       }
@@ -303,16 +302,6 @@
       } else {
         orientationWarning.classList.remove('hidden');
       }
-    }
-
-    function updateDesktopMessage() {
-      if (isMobile) {
-        desktopMessage.classList.add('hidden');
-        return;
-      }
-      desktopMessage.classList.remove('hidden');
-      const url = window.location.href;
-      qrCode.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
     }
 
     const DOWN_TILT_THRESHOLD = 55;
@@ -483,8 +472,9 @@
 
     // Update scoreboard initially
     updateScoreboard();
+    const qrUrl = window.location.href;
+    qrCode.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`;
     checkOrientation();
-    updateDesktopMessage();
 
     window.addEventListener('resize', checkOrientation);
     window.addEventListener('orientationchange', checkOrientation);
