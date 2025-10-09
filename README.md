@@ -1,4 +1,4 @@
-# Heads Up – French & English
+# Space Up – French & English
 
 A lightweight browser game inspired by the classic "Heads Up" party activity.  The app displays bilingual vocabulary cards with matching emoji artwork so players can practice French and English while playing hands-free on a mobile device.
 
