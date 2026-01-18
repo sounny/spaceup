@@ -70,6 +70,18 @@
       width: 160px;
       height: 160px;
     }
+    #motion-warning {
+      margin-top: 0.75rem;
+      padding: 0.75rem;
+      background-color: #fff4f4;
+      border: 1px solid #f1b0b7;
+      border-radius: 6px;
+      color: #8b1d1d;
+      font-size: 0.9rem;
+    }
+    #motion-warning.hidden {
+      display: none;
+    }
     #game {
       display: none;
       flex-direction: column;
@@ -150,6 +162,7 @@
     <h1>Space Up</h1>
     <p>This small game shows an image and its name in French and English.  Hold the phone to your forehead.  When you guess correctly, tilt the device down.  To pass, tilt up.  Try to get as many correct as you can!</p>
     <button id="start-button">Start Game</button>
+    <div id="motion-warning" class="hidden">Allow motion access when prompted so wrist tilts can be detected.</div>
     <div id="mobile-note">
       <p>Best experienced on a phone. Scan the QR code to open Space Up on your device.</p>
       <img id="qr-code" alt="QR code linking to Space Up" />
@@ -304,6 +317,7 @@
     const countdownOverlay = document.getElementById('countdown-overlay');
     const qrCode = document.getElementById('qr-code');
     const startButton = document.getElementById('start-button');
+    const motionWarning = document.getElementById('motion-warning');
 
     // Load stored high score from localStorage if available
     const storedHigh = localStorage.getItem('spaceUpHighScore') || localStorage.getItem('headsUpHighScore');
@@ -339,6 +353,7 @@
     let upTiltStart = null;
     let audioContext = null;
     let tiltCooldownUntil = 0;
+    let orientationListenerAttached = false;
 
     function ensureAudioContext() {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -375,6 +390,12 @@
     function resetTiltTimers() {
       downTiltStart = null;
       upTiltStart = null;
+    }
+
+    function attachOrientationListener() {
+      if (orientationListenerAttached) return;
+      window.addEventListener('deviceorientation', handleOrientation);
+      orientationListenerAttached = true;
     }
 
     // Show next card or finish the game
@@ -450,6 +471,28 @@
       }, 1000);
     }
 
+    async function requestMotionPermission() {
+      if (!window.DeviceOrientationEvent || typeof window.DeviceOrientationEvent.requestPermission !== 'function') {
+        motionWarning.classList.add('hidden');
+        attachOrientationListener();
+        return true;
+      }
+
+      try {
+        const response = await window.DeviceOrientationEvent.requestPermission();
+        if (response === 'granted') {
+          motionWarning.classList.add('hidden');
+          attachOrientationListener();
+          return true;
+        }
+      } catch (error) {
+        console.error('Motion permission request failed', error);
+      }
+
+      motionWarning.classList.remove('hidden');
+      return false;
+    }
+
     // Handle device orientation: detect up/down tilts
     function handleOrientation(event) {
       if (!playing || !waitingForTilt) return;
@@ -496,11 +539,10 @@
       }
     }
 
-    // Attach orientation listener
-    window.addEventListener('deviceorientation', handleOrientation);
-
     // Start button event
-    startButton.addEventListener('click', () => {
+    startButton.addEventListener('click', async () => {
+      const allowed = await requestMotionPermission();
+      if (!allowed) return;
       runCountdown();
     });
 
