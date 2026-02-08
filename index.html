@@ -346,11 +346,16 @@
 
     const DOWN_TILT_THRESHOLD = 55;
     const UP_TILT_THRESHOLD = -45;
+    const RELATIVE_TILT_THRESHOLD = 24;
     const HOLD_DURATION_MS = 250;
     const SENSOR_COOLDOWN_MS = 1000;
+    const BASELINE_SAMPLE_COUNT = 8;
 
     let downTiltStart = null;
     let upTiltStart = null;
+    let neutralBeta = null;
+    let baselineSampleTotal = 0;
+    let baselineSampleCount = 0;
     let audioContext = null;
     let tiltCooldownUntil = 0;
     let orientationListenerAttached = false;
@@ -392,6 +397,23 @@
       upTiltStart = null;
     }
 
+    function resetBaseline() {
+      neutralBeta = null;
+      baselineSampleTotal = 0;
+      baselineSampleCount = 0;
+    }
+
+    function maybeCaptureBaseline(beta) {
+      if (neutralBeta !== null) {
+        return;
+      }
+      baselineSampleTotal += beta;
+      baselineSampleCount += 1;
+      if (baselineSampleCount >= BASELINE_SAMPLE_COUNT) {
+        neutralBeta = baselineSampleTotal / baselineSampleCount;
+      }
+    }
+
     function attachOrientationListener() {
       if (orientationListenerAttached) return;
       window.addEventListener('deviceorientation', handleOrientation);
@@ -429,6 +451,7 @@
         cardText.textContent = `${item.english} / ${item.french}`;
         waitingForTilt = true;
         tiltCooldownUntil = performance.now() + SENSOR_COOLDOWN_MS;
+        resetBaseline();
         resetTiltTimers();
       }
     }
@@ -501,11 +524,18 @@
       const now = performance.now();
 
       if (now < tiltCooldownUntil) {
+        resetBaseline();
         resetTiltTimers();
         return;
       }
 
-      if (beta > DOWN_TILT_THRESHOLD) {
+      maybeCaptureBaseline(beta);
+      const relativeBeta = neutralBeta === null ? 0 : beta - neutralBeta;
+
+      const isDownTilt = beta > DOWN_TILT_THRESHOLD || relativeBeta > RELATIVE_TILT_THRESHOLD;
+      const isUpTilt = beta < UP_TILT_THRESHOLD || relativeBeta < -RELATIVE_TILT_THRESHOLD;
+
+      if (isDownTilt) {
         if (downTiltStart === null) {
           downTiltStart = now;
         }
@@ -523,7 +553,7 @@
         downTiltStart = null;
       }
 
-      if (beta < UP_TILT_THRESHOLD) {
+      if (isUpTilt) {
         if (upTiltStart === null) {
           upTiltStart = now;
         }
