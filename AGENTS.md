@@ -4,3 +4,5 @@ This file is a shared working memory.  Future agents should jot down implementat
 
 - 2025-09-12: Added iOS motion permission request flow and warning message to ensure device tilt controls work on phones. 
 - 2026-02-08: Improved tilt detection by calibrating a per-card neutral orientation baseline so flips trigger reliably from each player's hold angle.
+
+- 2026-03-14: Added stronger anti-skip tilt handling with neutral arming, sensor smoothing, and round/status UI feedback to reduce accidental multi-card flips.
