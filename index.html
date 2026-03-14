@@ -111,11 +111,22 @@
       font-size: 1.25rem;
       margin-top: 0.5rem;
     }
+    #round-indicator {
+      font-size: 0.95rem;
+      color: #444;
+      margin-top: 0.35rem;
+    }
     #instructions {
       font-size: 0.9rem;
       color: #555;
       margin-top: 0.5rem;
       max-width: 80vw;
+    }
+    #tilt-status {
+      margin-top: 0.4rem;
+      font-size: 0.9rem;
+      color: #2b2b2b;
+      min-height: 1.2em;
     }
     .hidden {
       display: none;
@@ -178,11 +189,13 @@
   <!-- Game container shown during play -->
   <div id="game">
     <div id="scoreboard">Score : 0 | High score : 0</div>
+    <div id="round-indicator">Card 0/5</div>
     <div id="card" class="card">
       <img id="card-image" src="" alt="" />
       <div id="card-text" class="card-text"></div>
     </div>
     <div id="instructions">Tip the phone down for correct guesses and hold briefly to hear a chime.  Tip it up to pass.</div>
+    <div id="tilt-status">Hold steady to calibrate…</div>
   </div>
 
   <script>
@@ -313,11 +326,13 @@
     const cardImage = document.getElementById('card-image');
     const cardText = document.getElementById('card-text');
     const scoreboard = document.getElementById('scoreboard');
+    const roundIndicator = document.getElementById('round-indicator');
     const orientationWarning = document.getElementById('orientation-warning');
     const countdownOverlay = document.getElementById('countdown-overlay');
     const qrCode = document.getElementById('qr-code');
     const startButton = document.getElementById('start-button');
     const motionWarning = document.getElementById('motion-warning');
+    const tiltStatus = document.getElementById('tilt-status');
 
     // Load stored high score from localStorage if available
     const storedHigh = localStorage.getItem('spaceUpHighScore') || localStorage.getItem('headsUpHighScore');
@@ -328,6 +343,11 @@
     // Update scoreboard display
     function updateScoreboard() {
       scoreboard.textContent = `Score : ${score} | High score : ${highScore}`;
+    }
+
+    function updateRoundIndicator() {
+      const shownCardNumber = Math.min(currentIndex + 1, currentItems.length);
+      roundIndicator.textContent = `Card ${shownCardNumber}/${currentItems.length || 5}`;
     }
 
     function checkOrientation() {
@@ -347,9 +367,12 @@
     const DOWN_TILT_THRESHOLD = 55;
     const UP_TILT_THRESHOLD = -45;
     const RELATIVE_TILT_THRESHOLD = 24;
-    const HOLD_DURATION_MS = 250;
-    const SENSOR_COOLDOWN_MS = 1000;
+    const HOLD_DURATION_MS = 380;
+    const SENSOR_COOLDOWN_MS = 1200;
     const BASELINE_SAMPLE_COUNT = 8;
+    const ARM_HOLD_MS = 320;
+    const NEUTRAL_ZONE_THRESHOLD = 14;
+    const SMOOTHING_FACTOR = 0.28;
 
     let downTiltStart = null;
     let upTiltStart = null;
@@ -359,6 +382,9 @@
     let audioContext = null;
     let tiltCooldownUntil = 0;
     let orientationListenerAttached = false;
+    let neutralHoldStart = null;
+    let gestureArmed = false;
+    let smoothedBeta = null;
 
     function ensureAudioContext() {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -395,12 +421,32 @@
     function resetTiltTimers() {
       downTiltStart = null;
       upTiltStart = null;
+      neutralHoldStart = null;
     }
 
     function resetBaseline() {
       neutralBeta = null;
       baselineSampleTotal = 0;
       baselineSampleCount = 0;
+      smoothedBeta = null;
+      gestureArmed = false;
+    }
+
+    function consumeTilt(action) {
+      waitingForTilt = false;
+      currentIndex++;
+      tiltCooldownUntil = performance.now() + SENSOR_COOLDOWN_MS;
+      resetTiltTimers();
+      if (action === 'correct') {
+        score++;
+        updateScoreboard();
+        playTone(880, 0.25, 'triangle');
+        tiltStatus.textContent = '✅ Correct! Next card…';
+      } else {
+        playTone(440, 0.2, 'sine');
+        tiltStatus.textContent = '⏭️ Pass. Next card…';
+      }
+      setTimeout(showNextCard, 320);
     }
 
     function maybeCaptureBaseline(beta) {
@@ -434,7 +480,9 @@
         // Display final score
         cardText.textContent = `Finished! Vous avez ${score} bonne(s) réponse(s).`;
         cardImage.src = '';
+        tiltStatus.textContent = 'Game complete!';
         updateScoreboard();
+        updateRoundIndicator();
         // Show play again button after a delay
         setTimeout(() => {
           startScreen.style.display = 'flex';
@@ -453,6 +501,8 @@
         tiltCooldownUntil = performance.now() + SENSOR_COOLDOWN_MS;
         resetBaseline();
         resetTiltTimers();
+        updateRoundIndicator();
+        tiltStatus.textContent = 'Hold steady for a moment to arm tilt detection…';
       }
     }
 
@@ -465,6 +515,7 @@
       playing = true;
       waitingForTilt = false;
       updateScoreboard();
+      updateRoundIndicator();
       startScreen.style.display = 'none';
       gameContainer.style.display = 'flex';
       ensureAudioContext();
@@ -523,30 +574,49 @@
       if (beta === null) return;
       const now = performance.now();
 
+      if (smoothedBeta === null) {
+        smoothedBeta = beta;
+      } else {
+        smoothedBeta += (beta - smoothedBeta) * SMOOTHING_FACTOR;
+      }
+
       if (now < tiltCooldownUntil) {
         resetBaseline();
         resetTiltTimers();
+        tiltStatus.textContent = 'Get ready…';
         return;
       }
 
-      maybeCaptureBaseline(beta);
-      const relativeBeta = neutralBeta === null ? 0 : beta - neutralBeta;
+      maybeCaptureBaseline(smoothedBeta);
+      const relativeBeta = neutralBeta === null ? 0 : smoothedBeta - neutralBeta;
+      const isNeutral = Math.abs(relativeBeta) <= NEUTRAL_ZONE_THRESHOLD;
 
-      const isDownTilt = beta > DOWN_TILT_THRESHOLD || relativeBeta > RELATIVE_TILT_THRESHOLD;
-      const isUpTilt = beta < UP_TILT_THRESHOLD || relativeBeta < -RELATIVE_TILT_THRESHOLD;
+      if (!gestureArmed) {
+        if (isNeutral && neutralBeta !== null) {
+          if (neutralHoldStart === null) {
+            neutralHoldStart = now;
+            tiltStatus.textContent = 'Steady… calibrating';
+          }
+          if (now - neutralHoldStart >= ARM_HOLD_MS) {
+            gestureArmed = true;
+            tiltStatus.textContent = 'Ready! Tilt down ✅ or up ⏭️';
+          }
+        } else {
+          neutralHoldStart = null;
+          tiltStatus.textContent = 'Hold centered to arm controls';
+        }
+        return;
+      }
+
+      const isDownTilt = smoothedBeta > DOWN_TILT_THRESHOLD || relativeBeta > RELATIVE_TILT_THRESHOLD;
+      const isUpTilt = smoothedBeta < UP_TILT_THRESHOLD || relativeBeta < -RELATIVE_TILT_THRESHOLD;
 
       if (isDownTilt) {
         if (downTiltStart === null) {
           downTiltStart = now;
         }
         if (now - downTiltStart >= HOLD_DURATION_MS) {
-          score++;
-          waitingForTilt = false;
-          currentIndex++;
-          resetTiltTimers();
-          updateScoreboard();
-          playTone(880, 0.25, 'triangle');
-          setTimeout(showNextCard, 300);
+          consumeTilt('correct');
           return;
         }
       } else {
@@ -558,11 +628,7 @@
           upTiltStart = now;
         }
         if (now - upTiltStart >= HOLD_DURATION_MS) {
-          waitingForTilt = false;
-          currentIndex++;
-          resetTiltTimers();
-          playTone(440, 0.2, 'sine');
-          setTimeout(showNextCard, 300);
+          consumeTilt('pass');
         }
       } else {
         upTiltStart = null;
